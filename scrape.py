@@ -162,12 +162,8 @@ class Scrape:
 
     def scrape(self, driver):
         """
-        Scrapes links of camera elements from 'https://digicamfinder.com/' website.
-            - Uses Selenium WebDriver to navigate to the website and locate camera elements.
-            - Adds the links of found camera elements to the list 'self.links'.
-            - Prints the links.
-
-        If a TimeoutException occurs during the process, it prints an error message.
+        Scrapes all links of camera elements from 'https://digicamfinder.com/' website,
+        including elements loaded dynamically as you scroll down.
 
         Parameters:
             - None
@@ -176,30 +172,56 @@ class Scrape:
             - None
         """
         try:
-            driver.get('https://digicamfinder.com/')
+            # Navigate to the website
+            self.driver.get('https://digicamfinder.com/')
 
-            self.wait(driver, 20, EC.visibility_of_element_located((By.CSS_SELECTOR, "#nav-header")))
-
-            content_container = self.wait(driver, 10,
-                                          EC.visibility_of_element_located((By.CSS_SELECTOR, ".css-1t2p7x5")))
-            print(f"content_container found. \nElement: {content_container}")
-
+            # Optionally close the overlay if present
             try:
-                elements = self.wait(driver, 10, EC.presence_of_all_elements_located((By.TAG_NAME, 'a')))
-                print(f"elements found: {elements}")
-            except TimeoutException as e:
-                print(f"failed to locate the tagnamed 'a's in the content_container: {e}")
+                minimize_button = self.wait(
+                    self.driver,
+                    10,
+                    EC.visibility_of_element_located((By.CSS_SELECTOR, "button[aria-label='Accept overlay.']"))
+                )
+                minimize_button.click()
+                print(f"Clicked minimize button. \n>>Element: {minimize_button}")
+            except TimeoutException:
+                print(f"Minimize button not found, continuing...")
 
-            camera_elements = driver.find_elements(By.CSS_SELECTOR, ".css-1t2p7x5 a")
-            print(f"camera_elements found: {camera_elements}")
+            # Wait for the loading spinner to disappear
+            self.wait(self.driver, 10, EC.invisibility_of_element_located((By.XPATH, "//span[text()='Loading...']")))
 
+            # Start scrolling to load more elements
+            last_height = self.driver.execute_script("return document.body.scrollHeight")
+            while True:
+                # Scroll down the page
+                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(2)  # Wait for new elements to load
+
+                # Wait for the new content to load and check the current scroll height
+                new_height = self.driver.execute_script("return document.body.scrollHeight")
+
+                # Break if no new content was loaded (end of page)
+                if new_height == last_height:
+                    break
+
+                last_height = new_height
+
+            # Now that all elements are loaded, get the container and scrape the links
+            content_container = self.wait(self.driver, 10,
+                                          EC.presence_of_element_located((By.CSS_SELECTOR, "div.css-1t2p7x5")))
+
+            camera_elements = content_container.find_elements(By.TAG_NAME, 'a')
+            print(f"Total elements found: {len(camera_elements)}")
+
+            # Collect all the links from the 'a' elements
             for element in camera_elements:
                 link = element.get_attribute('href')
                 self.links.append(link)
 
         except TimeoutException as e:
-            print(f"An Error occured during the scraping process: {e}")
+            print(f"An error occurred during the scraping process: {e}")
 
+        # Print all collected links
         for link in self.links:
             print(link)
 
