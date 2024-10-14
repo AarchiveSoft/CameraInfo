@@ -164,3 +164,4 @@ cython_debug/
 chromedriver.exe
 /chrome/
 /CameraSpecs.db
+/links.json
