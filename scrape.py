@@ -1,5 +1,6 @@
 """
-Temp
+TODO: Add special scraping functionality for important brands like Nikon and Sony
+The issue is that Video Specs arent found on digicamfinder.com, so i need the info from elsewhere.
 """
 import json
 import os
@@ -103,16 +104,19 @@ class Scrape:
         None
 
         """
-        try:
-            self.setup_db()
-        except Exception as e:
-            print(f"An Error occured setting up the db: {e}")
+        self.conn = sqlite3.connect("CameraSpecs.db")
+        self.c = self.conn.cursor()
+
+        self.c.execute("""CREATE TABLE IF NOT EXISTS camera_specs (brand TEXT, name TEXT PRIMARY KEY, announced_date 
+        TEXT)""")
         try:
             self.scrape_exec()
         except Exception as e:
             print(f"An Error occured during main execution: {e}")
+        finally:
+            self.conn.commit()
+            self.conn.close()
 
-    # TODO Rename this here and in `main`
     def scrape_exec(self):
         """
 
@@ -145,7 +149,7 @@ class Scrape:
         user_input = int(user_input)
         if user_input == 1:
             self.driver = self.setup_driver()
-            self.scrape(self.driver)
+            self.scrape_digicamfinder()
 
         if self.driver:
             time.sleep(10)
@@ -191,22 +195,6 @@ class Scrape:
         except Exception as e:
             print(f"An error occurred setting up the driver: {e}")
 
-    def setup_db(self):
-        """
-        Open a connection to a SQLite database called 'CameraSpecs.db'. Create a cursor object for database operations.
-        Generate a dynamic SQL query to create a table using the provided table template.
-        Execute the SQL command to create the table if it does not already exist and commit the transaction.
-        """
-        self.conn = sqlite3.connect('CameraSpecs.db')
-        self.c = self.conn.cursor()
-
-        # generate SQL Query dynamically
-        columns = ',\n'.join([f"{col_name} {col_type}" for col_name, col_type in self.table_template.items()])
-        dynamic_sql_command = f"CREATE TABLE IF NOT EXISTS CameraSpecs (\n{columns}\n);"
-
-        self.c.execute(dynamic_sql_command)
-        self.conn.commit()
-
     def wait(self, driver, timeout, condition):
         """
 
@@ -221,7 +209,7 @@ class Scrape:
         """
         return WebDriverWait(driver, timeout).until(condition)
 
-    def scrape(self, driver):
+    def scrape_digicamfinder(self):
         """
         Scrapes all links of camera elements from 'https://digicamfinder.com/' website,
         including elements loaded dynamically as you scroll down.
@@ -295,14 +283,16 @@ class Scrape:
                     self.links.append(link)
                     total_links += 1
                 self.write_links(self.links)
-                self.process_cameras()
+                self.process_cameras_digicamfinder()
 
             else:
                 self.links = self.read_links()
                 total_links = self.count_links()
                 print(f"{total_amount_of_cameras_int} Cameras are currently listed on the page"
                       f"\n{stored_links} Are already stored from previous Scrape"
-                      f"\n\nThe following process is very time-consuming, do you want to proceed, knowing that "
+                      f"\n\nThe following process is very time-consuming (roughly 45-90 minutes), do you want to "
+                      f"proceed, "
+                      f"knowing that "
                       f"there's likely NO NEW INFORMATION to be gathered?")
                 user_input = input("\n\nType '1' to proceed"
                                    "\nType '2' to abort scraping process"
@@ -317,17 +307,14 @@ class Scrape:
                     sys.exit()
                 else:
                     print("Proceeding with scraping...")
-                    self.process_cameras()
+                    self.process_cameras_digicamfinder()
 
         except TimeoutException as e:
             print(f"An error occurred during the scraping process: {e}")
 
-        # Print all collected links
-        # for link in self.links:
-        # print(link)
         print(f"Total Number of Links gathered: {total_links}")
 
-    def process_cameras(self):
+    def process_cameras_digicamfinder(self):
         """
 
         Method to process the cameras.
@@ -350,120 +337,27 @@ class Scrape:
                                                                                                ".chakra-text.css-1myq6hj")))
             camera_name = camera_name_element.text
 
+            brand_name = camera_name.split(' ', 1)[0]
+
+            announced_date_element = self.wait(self.driver, 10, EC.visibility_of_element_located((By.CSS_SELECTOR, ".chakra-text.css-8n0vdq")))
+            announced_date_element_text = announced_date_element.text
+            announced_date = announced_date_element_text.split(': ')
+            announced_date = announced_date[1]
+
             info_container = self.wait(self.driver, 10,
                                        EC.visibility_of_element_located((By.CSS_SELECTOR, ".css-2tor2e")))
 
             if info_container is not None:
-                info_divs = info_container.find_elements(By.TAG_NAME, "div")
-                info_elements = {
-                    "price"                           : str(info_divs[2].text),
-                    "body_type"                       : info_divs[5].text,
-                    "weight_inc_batteries"            : info_divs[7].text,
-                    "dimensions"                      : info_divs[9].text,
-                    "lens_mount"                      : info_divs[11].text,
-                    "display_type"                    : info_divs[13].text,
-                    "burst_fps"                       : info_divs[15].text,
-                    "viewfinder_type"                 : info_divs[17].text,
-                    "sensor_size"                     : info_divs[21].text,
-                    "sensor_type"                     : info_divs[23].text,
-                    "image_stabilization"             : info_divs[25].text,
-                    "max_resolution"                  : info_divs[27].text,
-                    "effective_pixels"                : info_divs[29].text,
-                    "processor"                       : info_divs[30].text,
-                    "number_of_focus_points"          : str(info_divs[32].text),
-                    "iso"                             : info_divs[35].text,
-                    "boosted_iso_minimum"             : str(info_divs[37].text),
-                    "boosted_iso_maximum"             : str(info_divs[39].text),
-                    "white_balance_presets"           : str(info_divs[41].text),
-                    "custom_white_balance"            : info_divs[43].text,
-                    "file_format"                     : self.li_elements(info_divs[45]),
-                    "jpeg_quality_levels"             : info_divs[47].text,
-                    "image_ratio_wh"                  : info_divs[49].text,
-                    "exposure_modes"                  : self.li_elements(info_divs[51]),
-                    "maximum_shutter_speed"           : info_divs[54].text,
-                    "maximum_shutter_speed_electronic": info_divs[56].text,
-                    "minimum_shutter_speed"           : info_divs[58].text,
-                    "exposure_compensation"           : info_divs[60].text,
-                    "touch_screen"                    : self.bool_elements(info_divs[62]),  # this
-                    "built_in_flash"                  : self.bool_elements(info_divs[64]),  # this
-                    "gps"                             : self.bool_elements(info_divs[66]),  # this
-                    "live_view"                       : self.bool_elements(info_divs[68]),  # this
-                    "self_timer"                      : self.bool_elements(info_divs[70]),  # and this all BOOL,
-                    "usb"                             : info_divs[72].text,
-                    "battery_description"             : info_divs[74].text,
-                    "battery_life_cipa"               : info_divs[76].text,
-                    "viewfinder_coverage"             : info_divs[78].text,
-                    "viewfinder_magnification"        : info_divs[80].text,
-                    "viewfinder_resolution"           : info_divs[82].text,
-                    "manual_focus"                    : self.bool_elements(info_divs[84]),  # TODO: bool, handle later
-                    "autofocus"                       : self.li_elements(info_divs[86])
-                }
+                divs = info_container.find_elements(By.XPATH, ".//div[not(contains(@class, 'css-wmbgwy'))]")
+
+                div_texts = [div.text for div in divs]
+
+                info_dict = {div_texts[i]: div_texts[i + 1] for i in range(0, len(div_texts), 2)}
             else:
-                print("couldn't find info container")
+                info_dict = {}
+                print("couldn't populate info_dict")
 
-            dynamic_sql_command_start = "INSERT INTO CameraSpecs (name, "
-            columns = ', '.join([f"{key}" for key, value in info_elements.items()])
-            dynamic_sql_command_mid = ")\nVALUES (?, "
-            question_marks = ', '.join(["?" for key, value in info_elements.items()])
-            dynamic_sql_command_mid2 = ")"
-
-            dynamic_sql_command = (dynamic_sql_command_start + columns + dynamic_sql_command_mid + question_marks +
-                                   dynamic_sql_command_mid2)
-
-            dynamic_variable_insert = [value for key, value in info_elements.items()]
-            dynamic_variable_insert = (camera_name,) + tuple(dynamic_variable_insert)
-
-            self.c.execute(dynamic_sql_command, tuple(dynamic_variable_insert))
-            self.conn.commit()
-
-            """         
-            for column, value in info_elements:
-    
-            price = 0.0
-            name = ""
-            body_type = ""
-            weight_inc_batteries = ""
-            dimensions = ""
-            lens_mount = ""
-            display_type = ""
-            burst_fps = ""
-            viewfinder_type = ""
-            optical_zoom = 0.0
-            maximum_aperture = ""
-            macro_focus_range = ""
-            sensor_size = ""
-            sensor_type = ""
-            image_stabilization = ""
-            max_resolution = ""
-            effective_pixels = ""
-            processor = ""
-            number_of_focus_points = 0
-            iso = ""
-            boosted_iso_minimum = 0
-            boosted_iso_maximum = 0
-            white_balance_presets = 0
-            custom_white_balance = 0
-            file_format = ""
-            jpeg_quality_levels = ""
-            image_ratio_wh = ""
-            exposure_modes = ""
-            maximum_shutter_speed = ""
-            minimum_shutter_speed = ""
-            exposure_compensation = ""
-            touch_screen = 0
-            built_in_flash = 0
-            gps = 0
-            live_view = ""
-            self_timer = ""
-            usb = ""
-            battery_description = ""
-            battery_life_cipa = 0
-            viewfinder_coverage = ""
-            viewfinder_magnification = ""
-            viewfinder_resolution = 0
-            manual_focus = 0
-            autofocus = ""
-            """
+            self.insert_product_specs(brand_name, camera_name, announced_date, info_dict)
 
     def li_elements(self, element):
         """
@@ -568,6 +462,48 @@ class Scrape:
         """
         links = self.read_links()
         return len(links)
+
+    def add_column_if_not_exists(self, column_name):
+        """
+
+        @param column_name: The name of the column to be added to the database table. If the column name contains spaces, parentheses, they will be replaced with underscores and removed, respectively.
+        @return: None. If the column does not exist in the table, it will be added as a TEXT type column via ALTER TABLE SQL query.
+
+        """
+        column_name = column_name.replace(' ', '_').replace('(', '').replace(')', '')
+        self.c.execute("PRAGMA table_info(camera_specs)")
+        columns = [info[1] for info in self.c.fetchall()]
+        if column_name not in columns:
+            self.c.execute(f"ALTER TABLE camera_specs ADD COLUMN {column_name} TEXT")
+            self.conn.commit()
+
+    def insert_product_specs(self, brand, name, announced_date, specs):
+        """
+
+        Insert product specifications into the database.
+
+        Parameters:
+        brand (str): The brand of the product.
+        name (str): The name of the product.
+        announced_date (str): The date when the product was announced.
+        specs (dict): A dictionary containing the product specifications.
+
+        """
+        for key in specs.keys():
+            self.add_column_if_not_exists(key)
+
+        # prepare dynamic sql query
+        columns = ', '.join([key.replace(' ', '_') for key in specs.keys()])
+        placeholders = ', '.join(['?' for _ in specs.values()])
+        values = list(specs.values())
+        self.c.execute(
+            f'''INSERT INTO camera_specs (brand, name, announced_date, {columns}) 
+                VALUES (?, ?, ?, {placeholders}) 
+                ON CONFLICT(name) DO UPDATE SET {", ".join([f"{key.replace(' ', '_')} = ?" for key in specs.keys()])}''',
+            [brand] + [name] + [announced_date] + values + values  # Insert values, then provide them again for the
+            # update
+        )
+        self.conn.commit()
 
 
 if __name__ == '__main__':
